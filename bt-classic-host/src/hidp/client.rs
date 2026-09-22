@@ -22,6 +22,11 @@ use crate::l2cap::L2capState;
 /// Maximum HID report size we support.
 pub const MAX_REPORT_SIZE: usize = 256;
 
+/// SET_PROTOCOL parameter selecting Boot Protocol.
+pub const PROTOCOL_BOOT: u8 = 0x00;
+/// SET_PROTOCOL parameter selecting Report Protocol.
+pub const PROTOCOL_REPORT: u8 = 0x01;
+
 /// A received HID report.
 pub struct HidReport {
     /// Report type (Input, Output, Feature).
@@ -237,14 +242,40 @@ impl HidClient {
         l2cap: &L2capState<CH>,
         controller: &C,
     ) -> Result<(), Error<C::Error>> {
+        self.set_protocol(l2cap, controller, PROTOCOL_REPORT).await
+    }
+
+    /// Send SET_PROTOCOL (Boot Protocol) on the control channel.
+    ///
+    /// Boot protocol pins a keyboard to the fixed 8-byte report the USB boot
+    /// keyboard descriptor expects — `[modifiers, reserved, key1..key6]` with
+    /// no report ID — so reports need no descriptor parsing to interpret.
+    ///
+    /// Devices that don't support it answer with a HIDP handshake error and
+    /// stay in report protocol, which the report translator also handles.
+    pub async fn set_protocol_boot<C: Controller, const CH: usize>(
+        &self,
+        l2cap: &L2capState<CH>,
+        controller: &C,
+    ) -> Result<(), Error<C::Error>> {
+        self.set_protocol(l2cap, controller, PROTOCOL_BOOT).await
+    }
+
+    /// Send SET_PROTOCOL with an explicit protocol parameter.
+    async fn set_protocol<C: Controller, const CH: usize>(
+        &self,
+        l2cap: &L2capState<CH>,
+        controller: &C,
+        protocol: u8,
+    ) -> Result<(), Error<C::Error>> {
         let ctrl_idx = self.control_channel.ok_or(Error::InvalidState)?;
 
-        // HIDP SET_PROTOCOL: header byte only, param = 0x01 (Report Protocol)
-        let header = types::build_header(MessageType::SetProtocol as u8, 0x01);
+        // HIDP SET_PROTOCOL: header byte only, param = 0 (Boot) or 1 (Report)
+        let header = types::build_header(MessageType::SetProtocol as u8, protocol);
         l2cap.send_data(controller, ctrl_idx, &[header]).await?;
 
         #[cfg(feature = "defmt")]
-        defmt::info!("[hidp] SET_PROTOCOL Report Mode");
+        defmt::info!("[hidp] SET_PROTOCOL protocol={}", protocol);
 
         Ok(())
     }

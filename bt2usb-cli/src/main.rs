@@ -46,7 +46,7 @@ enum Command {
         #[arg(short, long, default_value = "30")]
         timeout: u64,
 
-        /// Device profile to set on connect: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit)
+        /// Device profile to set on connect: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit), 4=MagicTrackpad, 5=Keyboard
         #[arg(short, long)]
         profile: Option<u8>,
 
@@ -64,7 +64,7 @@ enum Command {
         #[arg(short = 'k', long, default_value = "1")]
         addr_kind: u8,
 
-        /// Device profile: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit, default)
+        /// Device profile: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit, default), 4=MagicTrackpad, 5=Keyboard
         #[arg(short, long)]
         profile: Option<u8>,
 
@@ -103,7 +103,7 @@ enum Command {
         /// Device address (AA:BB:CC:DD:EE:FF)
         address: String,
 
-        /// Profile ID: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit, default), 4=MagicTrackpad
+        /// Profile ID: 0=generic, 1=MxMaster3S, 2=FullScrollDial(8-bit), 3=FullScrollDial(16-bit, default), 4=MagicTrackpad, 5=Keyboard
         profile_id: u8,
 
         /// Classic BT bond (default: BLE)

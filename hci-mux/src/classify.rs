@@ -51,6 +51,7 @@ pub fn classify_event(kind: EventKind) -> PacketTarget {
         EventKind::UserConfirmationRequest => PacketTarget::Classic,
         EventKind::UserPasskeyRequest => PacketTarget::Classic,
         EventKind::UserPasskeyNotification => PacketTarget::Classic,
+        EventKind::KeypressNotification => PacketTarget::Classic,
         EventKind::SimplePairingComplete => PacketTarget::Classic,
         EventKind::LinkSupervisionTimeoutChanged => PacketTarget::Classic,
         EventKind::SynchronousConnectionComplete => PacketTarget::Classic,

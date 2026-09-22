@@ -4,9 +4,9 @@ BLE HID to USB HID Bridge for Raspberry Pi Pico W.
 
 ## Overview
 
-This firmware connects to Bluetooth LE HID devices (mainly mice) and translates
-their input into USB HID, allowing them to be used with a USB switch between
-computers without re-pairing.
+This firmware connects to Bluetooth HID devices — LE mice, and Classic
+keyboards and trackpads — and translates their input into USB HID, allowing
+them to be used with a USB switch between computers without re-pairing.
 
 I built this to pair with the fantastic
 [Full Scroll Dial by Engineer Bo](https://www.youtube.com/watch?v=tzqJ1rJURgs)
@@ -45,6 +45,7 @@ standard HID and Magic Trackpad emulation, even on a USB switch.
   Dial
 - macOS support for high-res (smooth, pixel-level) scrolling via Magic Trackpad 2
   emulation
+- Bluetooth Classic keyboards, including passkey pairing
 - Supports up to 3 concurrently connected devices
 
 ## Device support notes
@@ -57,6 +58,7 @@ detected host OS, for reference:
 | Full Scroll Dial | Generic mouse with high-res scroll | Emulated Magic Trackpad 2 |
 | Generic mouse    | Generic mouse                      | Generic mouse (movement, clicks) + emulated MT2 (scrolling) |
 | Magic Trackpad 2* | Generic Precision Touchpad (PTP)   | Magic Trackpad 2 (emulated passthrough) |
+| Classic keyboard | Boot keyboard                      | Boot keyboard             |
 
 _\* Both Lightning and USB-C variants of the Magic Trackpad 2 are supported_
 
@@ -68,12 +70,11 @@ Known to work:
 - Logitech MX Master 3
 - Keychron M3 8K
 - Magic Trackpad 2 (Lightning and USB-C)
+- Bluetooth Classic keyboards (see below)
 
 Not currently supported:
-- Keyboards
+- BLE (Bluetooth LE) keyboards
 - Game controllers
-
-We might consider supporting keyboards and game controllers in the future.
 
 ## Requirements
 
@@ -93,7 +94,8 @@ firmware](https://github.com/raspberrypi/debugprobe).
 
 ## TODOs
 
-- Keyboard inputs (Classic and BLE)
+- Keyboard inputs over BLE (Classic keyboards are supported)
+- Media/consumer keys and keyboard LEDs (Caps Lock, Num Lock)
 - Pico 2W builds
 
 ## Flashing
@@ -145,7 +147,7 @@ $ bt2usb-cli setup-rules
 # Scan for pairable devices with interactive pairing
 $ bt2usb-cli scan
 
-# For BT Classic devices (e.g. Magic Trackpad 2), use --classic
+# For BT Classic devices (e.g. keyboards, Magic Trackpad 2), use --classic
 $ bt2usb-cli scan --classic
 
 # Connect to a device (if not done above)
@@ -186,6 +188,51 @@ translated to synthesized touch events as well. We have two modes for this:
 - `bt2usb-cli set-config smoothing 1` - smoothing is enabled, mouse wheel
   events are given mild acceleration and deceleration smoothing (with no
   acceleration), still approximately linear.
+
+### Bluetooth Classic keyboard support
+
+Classic keyboards are scanned for and paired the same way as other Classic
+devices:
+
+```code
+$ bt2usb-cli scan --classic
+```
+
+Put the keyboard into pairing mode first, then pick it from the list. Most
+keyboards then need a passkey typed on the keyboard itself, so watch the CLI
+output during pairing:
+
+```code
+  [INFO] Passkey 418207: type it on the keyboard, then press Enter
+```
+
+Type those six digits on the Bluetooth keyboard, including any leading zeros,
+and press Enter. Older keyboards ask for a PIN instead; the CLI prints that the
+same way (it is `0000`). Keyboards that need no confirmation at all just pair.
+
+Keystrokes are then forwarded to the host as a standard USB boot keyboard,
+which needs no driver on any OS.
+
+Some details worth knowing:
+
+- The bridge asks the keyboard for HID **boot protocol**, which pins reports to
+  the fixed 8-byte layout the USB boot keyboard descriptor expects. Keyboards
+  that decline stay in report protocol and still work.
+- Modifiers and the usual six-key rollover are forwarded. Media keys, function
+  layers, and other vendor-specific reports are ignored rather than guessed at
+  — a misread report would type characters you never pressed. They are logged,
+  so `bt2usb-cli logs` will show anything your keyboard sends that we skip.
+- Keyboard LEDs (Caps Lock, Num Lock) are not driven from the host.
+- A keyboard is recognised as one from its Bluetooth Class of Device during the
+  scan, so the profile is usually right from the first connection. If it isn't,
+  set it by hand and it applies immediately, without reconnecting:
+
+  ```code
+  $ bt2usb-cli set-profile <address> 5 --classic
+  ```
+
+- A keyboard that idles and drops the link is reconnected by the bridge's retry
+  loop, which can take up to 30 seconds. Press a key to wake the keyboard first.
 
 ### Magic Trackpad 2 input support
 

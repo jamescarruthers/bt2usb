@@ -16,7 +16,7 @@ use embassy_sync::signal::Signal;
 use crate::connection::{ClassicConnection, ConnectionStorage};
 use crate::error::Error;
 use crate::link_key::{LinkKeyInfo, LinkKeyStore};
-use crate::pairing::{self, PairingContext, PairingState};
+use crate::pairing::{self, PairingCallback, PairingContext, PairingEvent, PairingState};
 
 /// Signal used to notify user code of connection state changes.
 pub type ConnSignal = Signal<CriticalSectionRawMutex, ConnEvent>;
@@ -62,6 +62,7 @@ impl<const CONNS: usize> HostResources<CONNS> {
                     success: false,
                     new_link_key: None,
                     link_key_type: 0,
+                    passkey: None,
                 }
             }; CONNS],
             conn_signals: [const { Signal::new() }; CONNS],
@@ -78,6 +79,7 @@ impl<const CONNS: usize> HostResources<CONNS> {
             ctx.state = PairingState::Idle;
             ctx.success = false;
             ctx.new_link_key = None;
+            ctx.passkey = None;
         }
     }
 }
@@ -89,6 +91,7 @@ pub struct ClassicRunner<'a, C, L, const CONNS: usize> {
     controller: &'a C,
     resources: &'a mut HostResources<CONNS>,
     link_keys: &'a RefCell<L>,
+    pairing_callback: Option<PairingCallback>,
 }
 
 impl<'a, C, L, const CONNS: usize> ClassicRunner<'a, C, L, CONNS>
@@ -101,7 +104,8 @@ where
         + ControllerCmdSync<LinkKeyRequestNegativeReply>
         + ControllerCmdSync<PinCodeRequestReply>
         + ControllerCmdSync<IoCapabilityRequestReply>
-        + ControllerCmdSync<UserConfirmationRequestReply>,
+        + ControllerCmdSync<UserConfirmationRequestReply>
+        + ControllerCmdSync<UserPasskeyRequestNegativeReply>,
     L: LinkKeyStore,
 {
     /// Create a new runner.
@@ -114,6 +118,23 @@ where
             controller,
             resources,
             link_keys,
+            pairing_callback: None,
+        }
+    }
+
+    /// Register a callback for pairing steps the user needs to see or act on
+    /// — most importantly the passkey a keyboard expects them to type.
+    ///
+    /// Without one, Passkey Entry pairing stalls with nothing on screen: the
+    /// controller waits for a passkey the user was never shown.
+    pub fn set_pairing_callback(&mut self, callback: PairingCallback) {
+        self.pairing_callback = Some(callback);
+    }
+
+    /// Report a pairing event to the registered callback, if any.
+    fn notify_pairing(&self, addr: &BdAddr, event: PairingEvent) {
+        if let Some(cb) = self.pairing_callback {
+            cb(addr, event);
         }
     }
 
@@ -252,7 +273,10 @@ where
 
                         EventKind::PinCodeRequest => {
                             // [bdaddr(6)]
-                            // Legacy pairing — reply with default PIN "0000"
+                            // Legacy (pre-SSP) pairing. We answer with a fixed
+                            // PIN and tell the user what it is: on a keyboard
+                            // they have to type it and press Enter, so a PIN
+                            // sent silently is a pairing that never completes.
                             if event.data.len() >= 6 {
                                 let addr = BdAddr::new([
                                     event.data[0],
@@ -263,16 +287,22 @@ where
                                     event.data[5],
                                 ]);
                                 #[cfg(feature = "defmt")]
-                                defmt::info!("[classic] PinCodeRequest, replying with PIN '0000'");
+                                defmt::info!(
+                                    "[classic] PinCodeRequest, replying with PIN '{}'",
+                                    pairing::DEFAULT_LEGACY_PIN
+                                );
+                                let pin_bytes = pairing::DEFAULT_LEGACY_PIN.as_bytes();
+                                let pin_len = pin_bytes.len().min(16);
                                 let mut pin = [0u8; 16];
-                                pin[0] = b'0';
-                                pin[1] = b'0';
-                                pin[2] = b'0';
-                                pin[3] = b'0';
+                                pin[..pin_len].copy_from_slice(&pin_bytes[..pin_len]);
                                 self.controller
-                                    .exec(&PinCodeRequestReply::new(addr, 4, pin))
+                                    .exec(&PinCodeRequestReply::new(addr, pin_len as u8, pin))
                                     .await
                                     .map_err(Error::Command)?;
+                                self.notify_pairing(
+                                    &addr,
+                                    PairingEvent::LegacyPin(pairing::DEFAULT_LEGACY_PIN),
+                                );
                             }
                         }
 
@@ -289,14 +319,20 @@ where
                                 ]);
                                 #[cfg(feature = "defmt")]
                                 defmt::info!(
-                                    "[classic] IoCapabilityRequest, replying NoInputNoOutput"
+                                    "[classic] IoCapabilityRequest, replying {:?}",
+                                    pairing::OUR_IO_CAPABILITY
                                 );
+                                // General bonding: the link stays up and carries
+                                // HID traffic after pairing. MITM is left to the
+                                // remote to require — demanding it ourselves
+                                // would lock out NoInputNoOutput peers like the
+                                // Magic Trackpad 2.
                                 self.controller
                                     .exec(&IoCapabilityRequestReply::new(
                                         addr,
                                         pairing::OUR_IO_CAPABILITY,
                                         OobDataPresent::NotPresent,
-                                        AuthenticationRequirements::MitmNotRequiredDedicatedBonding,
+                                        AuthenticationRequirements::MitmNotRequiredGeneralBonding,
                                     ))
                                     .await
                                     .map_err(Error::Command)?;
@@ -339,6 +375,81 @@ where
                                     .exec(&UserConfirmationRequestReply::new(addr))
                                     .await
                                     .map_err(Error::Command)?;
+                                self.notify_pairing(&addr, PairingEvent::JustWorks);
+                            }
+                        }
+
+                        EventKind::UserPasskeyNotification => {
+                            // [bdaddr(6), passkey(4)]
+                            //
+                            // Passkey Entry: the controller picked a six-digit
+                            // passkey and the remote is waiting for the user to
+                            // type it. Nothing to reply to — we hand it up for
+                            // display and keep reading events until
+                            // SimplePairingComplete arrives, however long the
+                            // user takes.
+                            if event.data.len() >= 10 {
+                                let addr = BdAddr::new([
+                                    event.data[0],
+                                    event.data[1],
+                                    event.data[2],
+                                    event.data[3],
+                                    event.data[4],
+                                    event.data[5],
+                                ]);
+                                let passkey = u32::from_le_bytes([
+                                    event.data[6],
+                                    event.data[7],
+                                    event.data[8],
+                                    event.data[9],
+                                ]);
+                                self.resources.pairing[target_slot]
+                                    .on_user_passkey_notification(passkey);
+                                #[cfg(feature = "defmt")]
+                                defmt::info!("[classic] Passkey for remote entry: {}", passkey);
+                                self.notify_pairing(&addr, PairingEvent::PasskeyDisplay(passkey));
+                            }
+                        }
+
+                        EventKind::UserPasskeyRequest => {
+                            // [bdaddr(6)]
+                            //
+                            // The remote is displaying a passkey and wants us to
+                            // type it. We have no input device, so decline
+                            // rather than leave the controller waiting — the
+                            // user gets a clear failure instead of a hang.
+                            if event.data.len() >= 6 {
+                                let addr = BdAddr::new([
+                                    event.data[0],
+                                    event.data[1],
+                                    event.data[2],
+                                    event.data[3],
+                                    event.data[4],
+                                    event.data[5],
+                                ]);
+                                #[cfg(feature = "defmt")]
+                                defmt::warn!(
+                                    "[classic] UserPasskeyRequest: no input device, declining"
+                                );
+                                self.controller
+                                    .exec(&UserPasskeyRequestNegativeReply::new(addr))
+                                    .await
+                                    .map_err(Error::Command)?;
+                                self.notify_pairing(&addr, PairingEvent::PasskeyEntryUnsupported);
+                            }
+                        }
+
+                        EventKind::KeypressNotification => {
+                            // [bdaddr(6), notification_type(1)]
+                            // The remote reports passkey typing progress. Purely
+                            // informational, but it confirms the user is typing
+                            // on the right keyboard.
+                            #[cfg(feature = "defmt")]
+                            if event.data.len() >= 7 {
+                                defmt::debug!(
+                                    "[classic] Keypress notification: type={}",
+                                    event.data[6]
+                                );
                             }
                         }
 

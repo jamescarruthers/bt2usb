@@ -6,6 +6,11 @@
 //!
 //! Message format: header byte (upper nibble = type, lower = param) + payload.
 //!
+//! For a Classic keyboard:
+//! - `SET_PROTOCOL(Boot)` on the Control channel pins reports to the 8-byte
+//!   boot layout, matching the USB boot keyboard descriptor byte for byte
+//! - Input reports then arrive on the Interrupt channel as DATA messages
+//!
 //! For the Magic Trackpad 2 over Classic Bluetooth:
 //! - Input reports arrive on the Interrupt channel as DATA messages (0xA1)
 //! - Touch data uses Report ID 0x31 with 4-byte header + N*9-byte touch points
@@ -14,5 +19,5 @@
 pub mod client;
 pub mod types;
 
-pub use client::{HidClient, HidReport, MAX_REPORT_SIZE};
+pub use client::{HidClient, HidReport, MAX_REPORT_SIZE, PROTOCOL_BOOT, PROTOCOL_REPORT};
 pub use types::{HandshakeResult, MessageType, ReportType, PSM_HID_CONTROL, PSM_HID_INTERRUPT};
