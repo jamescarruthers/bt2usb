@@ -111,6 +111,8 @@ pub fn profile_name(id: u8) -> &'static str {
         1 => "MX Master 3S",
         2 => "Full Scroll Dial",
         3 => "Full Scroll Dial 16-bit",
+        4 => "Magic Trackpad",
+        5 => "Keyboard",
         _ => "Unknown",
     }
 }
@@ -285,7 +287,13 @@ pub fn cmd_connect(
         print_event(&evt);
     }
 
-    let connect_timeout = Duration::from_secs(30);
+    // Classic pairing can need a passkey read off this screen and typed on the
+    // device before it completes, so give a person time to do that.
+    let connect_timeout = if classic {
+        Duration::from_secs(90)
+    } else {
+        Duration::from_secs(30)
+    };
     let mut pairing_complete = false;
     transport.stream_messages(connect_timeout, |msg| {
         if let Message::Event { cbor } = msg {
@@ -546,6 +554,7 @@ pub fn cmd_auto_connect(transport: &mut Transport) -> Result<()> {
         print_event(&evt);
     }
 
+    // Reconnecting an already-bonded device: no pairing step, nothing to type.
     let connect_timeout = Duration::from_secs(30);
     transport.stream_messages(connect_timeout, |msg| {
         if let Message::Event { cbor } = msg {

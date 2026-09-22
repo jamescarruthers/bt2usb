@@ -575,12 +575,21 @@ async fn connection_manager_loop<
                         *loaded_bonds = new_bonds;
                     }
                 }
-                // Also notify the BLE slot if connected (Classic doesn't use slot commands)
+                // Also notify the live connection so the change applies now
+                // rather than on the next connect. BLE goes through its slot
+                // task; Classic has its own command channel.
                 if transport_type == crate::ble_state::TransportType::Ble {
                     if let Some(slot) = slots::find_slot_by_address(&address) {
                         let _ = SLOT_CMD_CHANNELS[slot]
                             .try_send(SlotCommand::UpdateProfile(profile_id));
                     }
+                } else {
+                    let _ = crate::ble_state::CLASSIC_CMD_CHANNEL.try_send(
+                        crate::ble_state::ClassicCommand::UpdateProfile {
+                            address,
+                            profile_id,
+                        },
+                    );
                 }
             }
 

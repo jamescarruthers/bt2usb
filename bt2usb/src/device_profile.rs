@@ -56,6 +56,8 @@ pub enum DeviceProfile {
     FullScrollDial16Bit,
     /// Apple Magic Trackpad 2/3 — Classic BT multitouch trackpad
     MagicTrackpad,
+    /// Classic BT keyboard — boot-protocol keystrokes forwarded to USB
+    Keyboard,
     /// Fallback for unknown devices — standard 3-byte mouse
     Generic,
 }
@@ -68,6 +70,7 @@ impl DeviceProfile {
             Self::FullScrollDial => "Full Scroll Dial",
             Self::FullScrollDial16Bit => "Full Scroll Dial", // Same BLE device
             Self::MagicTrackpad => "Magic Trackpad",
+            Self::Keyboard => "Keyboard",
             Self::Generic => "",
         }
     }
@@ -90,6 +93,7 @@ impl DeviceProfile {
             Self::FullScrollDial => 2,
             Self::FullScrollDial16Bit => 3,
             Self::MagicTrackpad => 4,
+            Self::Keyboard => 5,
         }
     }
 
@@ -100,6 +104,7 @@ impl DeviceProfile {
             2 => Self::FullScrollDial,
             3 => Self::FullScrollDial16Bit,
             4 => Self::MagicTrackpad,
+            5 => Self::Keyboard,
             _ => Self::Generic,
         }
     }
@@ -119,6 +124,15 @@ impl DeviceProfile {
             Self::FullScrollDial => translate_scroll_dial(data, len, accum),
             Self::FullScrollDial16Bit => translate_scroll_dial(data, len, accum), // Fallback for 8-bit mode
             Self::MagicTrackpad => translate_generic(data, len), // Not used — handled via passthrough
+            // Keyboards never reach the mouse path; their reports are
+            // translated in the Classic task and sent as keyboard events.
+            Self::Keyboard => MouseReport {
+                buttons: 0,
+                x: 0,
+                y: 0,
+                wheel: 0,
+                pan: 0,
+            },
             Self::Generic => translate_generic(data, len),
         }
     }
@@ -126,6 +140,11 @@ impl DeviceProfile {
     /// Check if this profile uses 16-bit mouse reports
     pub fn uses_16bit_reports(&self) -> bool {
         matches!(self, Self::FullScrollDial16Bit | Self::MagicTrackpad)
+    }
+
+    /// Whether this profile describes a keyboard rather than a pointing device.
+    pub fn is_keyboard(&self) -> bool {
+        matches!(self, Self::Keyboard)
     }
 
     /// Translate a raw BLE HID report into a 16-bit USB MouseReport16.

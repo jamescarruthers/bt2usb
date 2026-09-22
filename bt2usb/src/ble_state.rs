@@ -148,6 +148,11 @@ pub enum ClassicCommand {
     /// address and disconnect the device if it's currently connected, so it
     /// can't be silently re-stored on the next reconnect.
     ClearBond { address: [u8; 6] },
+    /// The stored profile for a device changed. Applied to the live link so a
+    /// corrected profile takes effect without a reconnect — which matters on
+    /// first pairing, where the CLI sets the profile moments after the link
+    /// comes up.
+    UpdateProfile { address: [u8; 6], profile_id: u8 },
 }
 
 /// Command channel for Classic BT task (capacity 2).

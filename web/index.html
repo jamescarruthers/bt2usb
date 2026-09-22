@@ -524,7 +524,7 @@
     const EVT_SCAN_RESULT = 0, EVT_CONNECTION_STATE = 1, EVT_PAIRING_STATUS = 2, EVT_LOG = 3, EVT_BOND_STORED = 4, EVT_BATTERY_LEVEL = 5;
     const STATE_NAMES = ['Disconnected', 'Scanning', 'Connecting', 'Connected', 'Pairing', 'Ready'];
     const LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
-    const PROFILE_NAMES = ['Generic', 'MX Master 3S', 'Full Scroll Dial (8-bit)', 'Full Scroll Dial'];
+    const PROFILE_NAMES = ['Generic', 'MX Master 3S', 'Full Scroll Dial (8-bit)', 'Full Scroll Dial', 'Magic Trackpad', 'Keyboard'];
 
     // ============ WebHID Transport ============
     let device = null;
@@ -944,6 +944,8 @@
                 <option value="1" ${profileId === 1 ? 'selected' : ''}>MX Master 3S</option>
                 <option value="2" ${profileId === 2 ? 'selected' : ''}>Full Scroll Dial (8-bit)</option>
                 <option value="3" ${profileId === 3 ? 'selected' : ''}>Full Scroll Dial</option>
+                <option value="4" ${profileId === 4 ? 'selected' : ''}>Magic Trackpad</option>
+                <option value="5" ${profileId === 5 ? 'selected' : ''}>Keyboard</option>
               </select>
             </td>
             <td><input type="checkbox" ${autoConnect ? 'checked' : ''} onchange="setAutoConnect('${addr}', ${addrKind}, this.checked)" title="Auto-connect on startup"></td>
