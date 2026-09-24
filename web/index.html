@@ -1010,8 +1010,7 @@
       const osVal = parseInt(val);
       const osNames = { 0: 'Auto', 1: 'Windows', 2: 'Linux', 3: 'macOS' };
       try {
-        const cbor = encodeCbor([CMD_SET_FORCED_OS, osVal]);
-        await sendRequest(cbor);
+        await sendRequest(CBOR.encode([CMD_SET_FORCED_OS, osVal]));
         appendLog(1, `Forced OS set to: ${osNames[osVal] || 'Unknown'}`);
       } catch (e) {
         appendLog(3, 'Set forced OS failed: ' + e.message);
